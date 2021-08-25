@@ -66,7 +66,7 @@ $ llvm-dis demo_obf.bc
 
 just function `foo2`:
 
-```
+```llvm
 ; Function Attrs: noinline nounwind optnone uwtable
 define dso_local void @foo2(i32 %0) #0 {
   %2 = alloca i32, align 4
