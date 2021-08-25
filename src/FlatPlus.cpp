@@ -14,7 +14,6 @@
 using namespace llvm;
 
 #define BITS_PER_BYTE (8)
-#define SUB_TRANS_BB_CNT (4)
 
 template <typename T>
 T rol(T val, size_t count) {
@@ -43,10 +42,6 @@ public:
     FlatPlusPass() : FunctionPass(ID) {
         // init random numeral generator
         rng = std::mt19937(std::random_device{}());
-        imm32 = rng();
-        for (size_t i = 0; i < sizeof(imm8) / sizeof(*imm8); i++) {
-            imm8[i] = (uint8_t)rng();
-        }
     }
 
     bool runOnFunction(Function &F) override {
@@ -55,14 +50,17 @@ public:
             return false;
         }
 
+        // re-init random for different function
+        initRandom();
+
         // insert all basic block except prologue into list
         SmallVector<BasicBlock *, 0> useful;
         for (BasicBlock &bb : F) {
             useful.emplace_back(&bb);
-            
+
             // early check, we should run pass `-lowerswitch` before flat,
             // or we can't processed SwitchInst
-            if (isa<InvokeInst>(bb.getTerminator()) || 
+            if (isa<InvokeInst>(bb.getTerminator()) ||
                 isa<SwitchInst>(bb.getTerminator())) {
                 return false;
             }
@@ -112,9 +110,9 @@ public:
 
         // build prologue
         IRBuilder<> prologueBuilder(prologue, prologue->end());
-        AllocaInst *labelPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty());
-        AllocaInst *xPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty());
-        AllocaInst *yPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty());
+        AllocaInst *labelPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "label");
+        AllocaInst *xPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "x");
+        AllocaInst *yPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "y");
         allocTransBlockPtr(prologueBuilder);
         // label been patched later (label is not allocated at this point)
         StoreInst *labelStore =
@@ -124,10 +122,10 @@ public:
         prologueBuilder.CreateBr(dispatcher);
 
         // build translate blocks
-        BasicBlock **translates = genTransBlocks(F, xPtr, labelPtr);
+        BasicBlock **translates = genTransBlocks(F, xPtr, yPtr, labelPtr);
 
         // give each translate block a pair of (x, y), x is unique
-        for (size_t i = 0; i < SUB_TRANS_BB_CNT; i++) {
+        for (size_t i = 0; i < subTransCnt; i++) {
             BasicBlock *bb = translates[i];
             uint32_t x, y, label;
             do {
@@ -154,12 +152,12 @@ public:
         // move all useful blocks and translate blocks before loopBack block,
         // and add their's label into dispatcher's switch case
         for (BasicBlock *bb : useful) {
-            bb->moveBefore(loopBack);
+            // bb->moveBefore(loopBack);
             dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
         }
-        for (size_t i = 0; i < SUB_TRANS_BB_CNT; i++) {
+        for (size_t i = 0; i < subTransCnt; i++) {
             BasicBlock *bb = translates[i];
-            bb->moveBefore(loopBack);
+            // bb->moveBefore(loopBack);
             dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
         }
 
@@ -236,11 +234,11 @@ public:
             }
             }
         }
-        for (size_t i = 0; i < SUB_TRANS_BB_CNT; i++) {
+        for (size_t i = 0; i < subTransCnt; i++) {
             BasicBlock *bb = translates[i];
             Instruction *terminator = bb->getTerminator();
             IRBuilder<> caseBuilder(bb, bb->end());
-            if (i != SUB_TRANS_BB_CNT - 1) {
+            if (i != subTransCnt - 1) {
                 // not last translate block
                 caseBuilder.CreateStore(dispatchSwitch->findCaseDest(translates[i + 1]), labelPtr);
             }
@@ -250,105 +248,107 @@ public:
             }
         }
 
+        // shuffle blocks
+        SmallVector<BasicBlock *, 0> allBlocks;
+        for (BasicBlock *bb : useful) {
+            allBlocks.emplace_back(bb);
+        }
+        for (size_t i = 0; i < subTransCnt; i++) {
+            BasicBlock *bb = translates[i];
+            allBlocks.emplace_back(bb);
+        }
+
+        shuffleBlock(allBlocks);
+
         fixStack(&F);
         return true;
     }
 
 private:
     std::mt19937 rng;
+    uint32_t subTransCnt = 0;
     uint32_t imm32 = 0;
-    uint8_t imm8[SUB_TRANS_BB_CNT] = {0};
-    AllocaInst *varPtr[4] = {nullptr}; // a,b,c,d
+    uint8_t *imm8 = nullptr;
+    AllocaInst *bakPtr[2] = {nullptr};
+
+    void initRandom() {
+        subTransCnt = (rng() & 7) + 3;
+        imm32 = rng();
+        imm8 = new uint8_t[subTransCnt];
+        for (size_t i = 0; i < subTransCnt; i++) {
+            imm8[i] = (uint8_t)rng();
+        }
+    }
 
     // detail translate algo
     uint32_t genLabel(uint32_t x) {
-        uint32_t a, b, c, d, label;
+        uint32_t a, b, label;
+        a = imm32;
+        b = x;
 
-        // trans_bb_1
-        a = imm32 + x;
-        b = a ^ rol(x, imm8[0]);
+        for (int i = 0; i < subTransCnt; i++) {
+            a = a + b;
+            b = a ^ rol(b, imm8[i]);
+        }
 
-        // trans_bb_2
-        c = a + b;
-        d = c ^ ror(b, imm8[1]);
-
-        // trans_bb_3
-        a = c + d;
-        b = a ^ rol(d, imm8[2]);
-
-        // trans_bb_4
-        c = a + b;
-        d = c ^ ror(b, imm8[3]);
-
-        label = d;
+        label = b;
         return label;
     }
 
     void allocTransBlockPtr(IRBuilder<> &builder) {
-        for (int j = 0; j < sizeof(varPtr) / sizeof(*varPtr); j++) {
-            varPtr[j] = builder.CreateAlloca(builder.getInt32Ty());
+        for (int j = 0; j < sizeof(bakPtr) / sizeof(*bakPtr); j++) {
+            bakPtr[j] = builder.CreateAlloca(builder.getInt32Ty());
         }
     }
 
-    BasicBlock **genTransBlocks(Function &F, AllocaInst *xPtr, AllocaInst *labelPtr) {
-        BasicBlock **translates = new BasicBlock *[SUB_TRANS_BB_CNT];
+    BasicBlock **genTransBlocks(Function &F, AllocaInst *xPtr, AllocaInst *yPtr, AllocaInst *labelPtr) {
+        BasicBlock **translates = new BasicBlock *[subTransCnt];
         char tmpBuf[0x40];
-        for (int i = 0; i < SUB_TRANS_BB_CNT; i++) {
+        for (int i = 0; i < subTransCnt; i++) {
             snprintf(tmpBuf, sizeof(tmpBuf), "Trans_%d", i);
             translates[i] = BasicBlock::Create(F.getContext(), tmpBuf, &F);
 
             IRBuilder<> builder(translates[i]);
-            Value *v0, *v1;
-            switch (i) {
-            case 0:
-                v0 = builder.getInt32(imm32);  // imm32
-                v1 = builder.CreateLoad(xPtr); // x
-                break;
-            case 1:
-                v0 = builder.CreateLoad(varPtr[0]); // a
-                v1 = builder.CreateLoad(varPtr[1]); // b
-                break;
-            case 2:
-                v0 = builder.CreateLoad(varPtr[2]); // c
-                v1 = builder.CreateLoad(varPtr[3]); // d
-                break;
-            case 3:
-                v0 = builder.CreateLoad(varPtr[0]); // a
-                v1 = builder.CreateLoad(varPtr[1]); // b
-                break;
+            if (i == 0) {
+                // first trans block
+                builder.CreateStore(builder.CreateLoad(xPtr), bakPtr[0]);
+                builder.CreateStore(builder.CreateLoad(yPtr), bakPtr[1]);
+                builder.CreateStore(builder.CreateLoad(xPtr), yPtr);
+                builder.CreateStore(builder.getInt32(imm32), xPtr);
             }
-
+            auto v0 = builder.CreateLoad(xPtr);
+            auto v1 = builder.CreateLoad(yPtr);
             auto v2 = builder.getInt8(imm8[i]);
             auto v4 = builder.CreateAdd(v1, v0);
-            auto v5 = builder.CreateAnd(v2, builder.getInt8(31));
+            auto v5 = builder.CreateAnd(v2, 31);
             auto v6 = builder.CreateZExt(v5, builder.getInt32Ty());
-            auto v7 = (i % 2) ? builder.CreateLShr(v1, v6) : builder.CreateShl(v1, v6);
+            auto v7 = builder.CreateShl(v1, v6);
             auto v8 = builder.CreateSub(builder.getInt32(32), v6);
-            auto v9 = (i % 2) ? builder.CreateShl(v1, v8) : builder.CreateLShr(v1, v8);
+            auto v9 = builder.CreateLShr(v1, v8);
             auto v10 = builder.CreateOr(v9, v7);
             auto v11 = builder.CreateXor(v10, v4);
 
-            switch (i) {
-            case 0:
-                builder.CreateStore(v4, varPtr[0]);  // a
-                builder.CreateStore(v11, varPtr[1]); // b
-                break;
-            case 1:
-                builder.CreateStore(v4, varPtr[2]);  // c
-                builder.CreateStore(v11, varPtr[3]); // d
-                break;
-            case 2:
-                builder.CreateStore(v4, varPtr[0]);  // a
-                builder.CreateStore(v11, varPtr[1]); // b
-                break;
-            case 3:
-                builder.CreateStore(v4, varPtr[2]); // c
-                builder.CreateStore(v11, labelPtr); // swLabel
-                break;
+            builder.CreateStore(v4, xPtr);
+            builder.CreateStore(v11, yPtr);
+
+            if (i == subTransCnt - 1) {
+                // last trans block
+                builder.CreateStore(builder.CreateLoad(bakPtr[0]), xPtr);
+                builder.CreateStore(builder.CreateLoad(bakPtr[1]), yPtr);
+                builder.CreateStore(v11, labelPtr);
             }
         }
 
         return translates;
+    }
+
+    void shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
+        size_t cnt = bb.size();
+        for (int i = 0; i < cnt * 2; i++) {
+            auto first = bb[rng() % cnt];
+            auto second = bb[rng() % cnt];
+            first->moveBefore(second);
+        }
     }
 
     // copied from ollvm
