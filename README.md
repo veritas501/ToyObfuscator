@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
 
 ```bash
 $ clang -emit-llvm -c demo.c -o demo.bc
-$ opt -load ./libMyObfuscator.so -lowerswitch -fla_plus demo.bc -o demo_obf.bc
+$ opt -load ./libToyObfuscator.so -lowerswitch -fla_plus demo.bc -o demo_obf.bc
 # 👆 DON'T forget -lowerswitch
 $ clang demo_obf.bc -o demo_obf
 ```
