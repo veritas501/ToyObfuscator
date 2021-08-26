@@ -102,7 +102,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
     }
     useful.erase(useful.begin());
 
-    // If prologue's terminator is BranchInst or IndirectBrInst,
+    // if prologue's terminator is BranchInst or IndirectBrInst,
     // then split it into two blocks
     BasicBlock *prologue = &*F.begin();
     if (isa<BranchInst>(prologue->getTerminator()) ||
@@ -115,14 +115,13 @@ bool FlatPlusPass::runOnFunction(Function &F) {
         BasicBlock *tempBlock = prologue->splitBasicBlock(iter);
         useful.insert(useful.begin(), tempBlock);
     }
-    // Remove prologueBB's terminator
+    // remove prologue's terminator
     prologue->getTerminator()->eraseFromParent();
     // get first block from list
     BasicBlock *firstBlock = *useful.begin();
 
-    // Create main loop
+    // create main loop
     BasicBlock *dispatcher = BasicBlock::Create(F.getContext(), "Dispatcher", &F);
-    BasicBlock *loopBack = BasicBlock::Create(F.getContext(), "LoopBack", &F);
     BasicBlock *defaultBr = BasicBlock::Create(F.getContext(), "DefaultBranch", &F);
 
     // give each useful block  a pair of (x, y), x is unique
@@ -145,7 +144,8 @@ bool FlatPlusPass::runOnFunction(Function &F) {
 
     // build prologue
     IRBuilder<> prologueBuilder(prologue, prologue->end());
-    AllocaInst *labelPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "label");
+    AllocaInst *labelPtr =
+        prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "label");
     AllocaInst *xPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "x");
     AllocaInst *yPtr = prologueBuilder.CreateAlloca(prologueBuilder.getInt32Ty(), nullptr, "y");
     allocTransBlockPtr(prologueBuilder);
@@ -179,10 +179,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
     SwitchInst *dispatchSwitch = dispatcherBuilder.CreateSwitch(label, defaultBr, 0);
 
     // build default block
-    BranchInst::Create(defaultBr, defaultBr);
-
-    // build loop block
-    BranchInst::Create(dispatcher, loopBack);
+    BranchInst::Create(dispatcher, defaultBr);
 
     // move all useful blocks and translate blocks before loopBack block,
     // and add their's label into dispatcher's switch case
@@ -227,7 +224,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
             caseBuilder.CreateStore(v4, yPtr);
 
             caseBuilder.CreateStore(firstTransBlockLabel, labelPtr);
-            caseBuilder.CreateBr(loopBack);
+            caseBuilder.CreateBr(dispatcher);
             terminator->eraseFromParent();
             break;
         }
@@ -258,7 +255,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
                 caseBuilder.CreateStore(v8, yPtr);
 
                 caseBuilder.CreateStore(firstTransBlockLabel, labelPtr);
-                caseBuilder.CreateBr(loopBack);
+                caseBuilder.CreateBr(dispatcher);
                 terminator->eraseFromParent();
             }
             break;
@@ -277,7 +274,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
             // not last translate block
             caseBuilder.CreateStore(dispatchSwitch->findCaseDest(translates[i + 1]), labelPtr);
         }
-        caseBuilder.CreateBr(loopBack);
+        caseBuilder.CreateBr(dispatcher);
         if (terminator) {
             terminator->eraseFromParent();
         }
