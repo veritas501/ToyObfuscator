@@ -32,7 +32,7 @@ void foo1() {
 }
 
 void foo2(int argc) {
-    for (i = 0; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
         puts("argc != 1");
     }
 }
