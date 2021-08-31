@@ -32,8 +32,8 @@ void foo1() {
 }
 
 void foo2(int argc) {
-    for(int i=0;i<argc;i++){
-        puts("argc != 1");    
+    for (i = 0; i < argc; i++) {
+        puts("argc != 1");
     }
 }
 
@@ -51,8 +51,7 @@ int main(int argc, char **argv) {
 
 ```bash
 $ clang -emit-llvm -c demo.c -o demo.bc
-$ opt -load ./libToyObfuscator.so -lowerswitch -fla_plus demo.bc -o demo_obf.bc
-# 👆 DON'T forget -lowerswitch
+$ opt -load ./libToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
 $ clang demo_obf.bc -o demo_obf
 ```
 
@@ -218,6 +217,3 @@ Trans_2:                                          ; preds = %Dispatcher
   br label %Dispatcher
 }
 ```
-
-
-

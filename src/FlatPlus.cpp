@@ -2,101 +2,49 @@
  * FlatPlusPass skeleton from https://github.com/chenx6/baby_obfuscator/blob/master/src/Flattening.cpp
  * Some function copied from https://github.com/obfuscator-llvm/obfuscator
  */
+#include "FlatPlus.hpp"
+#include "LegacyLowerSwitch.hpp"
+#include "Utils.hpp"
 
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/Pass.h"
-#include "llvm/Support/Format.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/Local.h"
-#include <iostream>
-#include <random>
-#include <set>
-#include <vector>
-
-using namespace llvm;
-
-#define BITS_PER_BYTE (8)
-
-template <typename T>
-T rol(T val, size_t count) {
-    size_t bitcount = sizeof(T) * BITS_PER_BYTE;
-    count %= bitcount;
-    return (val << count) | (val >> (bitcount - count));
+FlatPlus::FlatPlus() {
+    // init random numeral generator
+    rng = std::mt19937(std::random_device{}());
 }
 
-template <typename T>
-T ror(T val, size_t count) {
-    size_t bitcount = sizeof(T) * BITS_PER_BYTE;
-    count %= bitcount;
-    return (val >> count) | (val << (bitcount - count));
-}
-
-struct labelInfo {
-    uint32_t x;
-    uint32_t y;
-    uint32_t label;
-};
-
-class FlatPlusPass : public FunctionPass {
-public:
-    static char ID;
-
-    FlatPlusPass() : FunctionPass(ID) {
-        // init random numeral generator
-        rng = std::mt19937(std::random_device{}());
-    }
-
-    bool runOnFunction(Function &F) override;
-
-private:
-    std::mt19937 rng;
-    uint32_t subTransCnt = 0;
-    uint32_t imm32 = 0;
-    uint8_t *imm8 = nullptr;
-    AllocaInst *bakPtr[2] = {nullptr};
-
-    void initRandom();
-
-    // detail translate algo
-    uint32_t genLabel(uint32_t x);
-
-    void allocTransBlockPtr(IRBuilder<> &builder);
-
-    BasicBlock **genTransBlocks(Function &F, AllocaInst *xPtr,
-                                AllocaInst *yPtr, AllocaInst *labelPtr);
-
-    void shuffleBlock(SmallVector<BasicBlock *, 0> &bb);
-
-    // copied from ollvm
-    bool valueEscapes(Instruction *Inst);
-
-    // copied from ollvm
-    void fixStack(Function *f);
-};
-
-char FlatPlusPass::ID = 0;
-
-bool FlatPlusPass::runOnFunction(Function &F) {
+bool FlatPlus::doFlat(Function &F) {
     // if only one basic block in this function, skip this function
     if (F.size() <= 1) {
+        errs() << "[!] "
+               << "Skip one block function: " << F.getName() << "\n";
         return false;
     }
 
     // re-init random for different function
     initRandom();
 
+    // lower switch
+    FunctionPass *lower = createLegacyLowerSwitchPass();
+    lower->runOnFunction(F);
+
     // insert all basic block except prologue into list
     SmallVector<BasicBlock *, 0> useful;
     for (BasicBlock &bb : F) {
         useful.emplace_back(&bb);
 
-        // early check, we should run pass `-lowerswitch` before flat,
-        // or we can't processed SwitchInst
-        if (isa<InvokeInst>(bb.getTerminator()) ||
-            isa<SwitchInst>(bb.getTerminator())) {
+        // ollvm can't deal with InvokeInst, which used by
+        // @synchronized, try...catch, etc
+        if (isa<InvokeInst>(bb.getTerminator())) {
+            errs() << "[-] "
+                   << "Can't deal with `InvokeInst` in function: "
+                   << F.getName() << "\n";
+            return false;
+        }
+        // we should run pass lower switch before flat,
+        // or we can't deal with SwitchInst
+        if (isa<SwitchInst>(bb.getTerminator())) {
+            errs() << "[-] "
+                   << "Can't deal with `SwitchInst` in function: "
+                   << F.getName() << "\n";
             return false;
         }
     }
@@ -131,10 +79,10 @@ bool FlatPlusPass::runOnFunction(Function &F) {
         uint32_t x, y, label;
         do {
             x = rng();
-        } while (xValSet.find(x) != xValSet.end());
+            y = rng();
+            label = genLabel(x);
+        } while ((xValSet.find(x) != xValSet.end()) && label);
         xValSet.insert(x);
-        y = rng();
-        label = genLabel(x);
         blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
     }
 
@@ -165,11 +113,10 @@ bool FlatPlusPass::runOnFunction(Function &F) {
         uint32_t x, y, label;
         do {
             x = rng();
-        } while (xValSet.find(x) != xValSet.end());
+            y = rng();
+            label = genLabel(x);
+        } while ((xValSet.find(x) != xValSet.end()) && label);
         xValSet.insert(x);
-        y = rng();
-
-        label = genLabel(x);
         blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
     }
 
@@ -184,12 +131,10 @@ bool FlatPlusPass::runOnFunction(Function &F) {
     // move all useful blocks and translate blocks before loopBack block,
     // and add their's label into dispatcher's switch case
     for (BasicBlock *bb : useful) {
-        // bb->moveBefore(loopBack);
         dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
     }
     for (size_t i = 0; i < subTransCnt; i++) {
         BasicBlock *bb = translates[i];
-        // bb->moveBefore(loopBack);
         dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
     }
 
@@ -296,7 +241,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
     return true;
 }
 
-void FlatPlusPass::initRandom() {
+void FlatPlus::initRandom() {
     subTransCnt = (rng() & 7) + 3;
     imm32 = rng();
     imm8 = new uint8_t[subTransCnt];
@@ -305,7 +250,7 @@ void FlatPlusPass::initRandom() {
     }
 }
 
-uint32_t FlatPlusPass::genLabel(uint32_t x) {
+uint32_t FlatPlus::genLabel(uint32_t x) {
     uint32_t a, b, label;
     a = imm32;
     b = x;
@@ -319,14 +264,14 @@ uint32_t FlatPlusPass::genLabel(uint32_t x) {
     return label;
 }
 
-void FlatPlusPass::allocTransBlockPtr(IRBuilder<> &builder) {
+void FlatPlus::allocTransBlockPtr(IRBuilder<> &builder) {
     for (int j = 0; j < sizeof(bakPtr) / sizeof(*bakPtr); j++) {
         bakPtr[j] = builder.CreateAlloca(builder.getInt32Ty());
     }
 }
 
-BasicBlock **FlatPlusPass::genTransBlocks(Function &F, AllocaInst *xPtr,
-                                          AllocaInst *yPtr, AllocaInst *labelPtr) {
+BasicBlock **FlatPlus::genTransBlocks(Function &F, AllocaInst *xPtr,
+                                      AllocaInst *yPtr, AllocaInst *labelPtr) {
     BasicBlock **translates = new BasicBlock *[subTransCnt];
     char tmpBuf[0x40];
     for (int i = 0; i < subTransCnt; i++) {
@@ -367,7 +312,7 @@ BasicBlock **FlatPlusPass::genTransBlocks(Function &F, AllocaInst *xPtr,
     return translates;
 }
 
-void FlatPlusPass::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
+void FlatPlus::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
     size_t cnt = bb.size();
     for (int i = 0; i < cnt * 2; i++) {
         auto first = bb[rng() % cnt];
@@ -376,52 +321,5 @@ void FlatPlusPass::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
     }
 }
 
-bool FlatPlusPass::valueEscapes(Instruction *Inst) {
-    BasicBlock *BB = Inst->getParent();
-    for (Value::use_iterator UI = Inst->use_begin(),
-                             E = Inst->use_end();
-         UI != E; ++UI) {
-        Instruction *I = cast<Instruction>(*UI);
-        if (I->getParent() != BB || isa<PHINode>(I)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void FlatPlusPass::fixStack(Function *f) {
-    // Try to remove phi node and demote reg to stack
-    std::vector<PHINode *> tmpPhi;
-    std::vector<Instruction *> tmpReg;
-    BasicBlock *bbEntry = &*f->begin();
-
-    do {
-        tmpPhi.clear();
-        tmpReg.clear();
-
-        for (Function::iterator i = f->begin(); i != f->end(); ++i) {
-            for (BasicBlock::iterator j = i->begin(); j != i->end(); ++j) {
-                if (isa<PHINode>(j)) {
-                    PHINode *phi = cast<PHINode>(j);
-                    tmpPhi.push_back(phi);
-                    continue;
-                }
-                if (!(isa<AllocaInst>(j) && j->getParent() == bbEntry) &&
-                    (valueEscapes(&*j) || j->isUsedOutsideOfBlock(&*i))) {
-                    tmpReg.push_back(&*j);
-                    continue;
-                }
-            }
-        }
-        for (unsigned int i = 0; i != tmpReg.size(); ++i) {
-            DemoteRegToStack(*tmpReg.at(i), f->begin()->getTerminator());
-        }
-
-        for (unsigned int i = 0; i != tmpPhi.size(); ++i) {
-            DemotePHIToStack(tmpPhi.at(i), f->begin()->getTerminator());
-        }
-
-    } while (tmpReg.size() != 0 || tmpPhi.size() != 0);
-}
-
+char FlatPlusPass::ID = 0;
 static RegisterPass<FlatPlusPass> X("fla_plus", "cfg flatten");
