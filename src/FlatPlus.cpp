@@ -272,8 +272,8 @@ void FlatPlus::allocTransBlockPtr(IRBuilder<> &builder) {
     }
 }
 
-BasicBlock **FlatPlus::genTransBlocks(Function &F, AllocaInst *xPtr,
-                                      AllocaInst *yPtr, AllocaInst *labelPtr) {
+BasicBlock **FlatPlus::genTransBlocks(Function &F, Value *xPtr,
+                                      Value *yPtr, Value *labelPtr) {
     BasicBlock **translates = new BasicBlock *[subTransCnt];
     char tmpBuf[0x40];
     for (int i = 0; i < subTransCnt; i++) {

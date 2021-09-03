@@ -26,7 +26,7 @@ public:
 
     bool doFlat(Function &F);
 
-private:
+protected:
     std::mt19937 rng;
     uint32_t subTransCnt = 0;
     uint32_t imm32 = 0;
@@ -41,8 +41,8 @@ private:
 
     void allocTransBlockPtr(IRBuilder<> &builder);
 
-    BasicBlock **genTransBlocks(Function &F, AllocaInst *xPtr,
-                                AllocaInst *yPtr, AllocaInst *labelPtr);
+    BasicBlock **genTransBlocks(
+        Function &F, Value *xPtr, Value *yPtr, Value *labelPtr);
 
     void shuffleBlock(SmallVector<BasicBlock *, 0> &bb);
 };

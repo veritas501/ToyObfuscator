@@ -7,4 +7,5 @@ add_library(ToyObfuscator
   Utils.cpp
   LegacyLowerSwitch.cpp
   FlatPlus.cpp
+  FlatV2.cpp
 )
