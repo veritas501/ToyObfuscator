@@ -28,7 +28,7 @@ git clone https://github.com/llvm/llvm-project.git --depth 1 -b llvmorg-10.0.1
 # normal build clang and llvm
 cd <DIR_TO_llvm-project>
 mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles" ../llvm
 make -j`nproc` # or 'make clang -j`nproc`' for just compile clang
 ```
 
