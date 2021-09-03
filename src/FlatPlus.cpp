@@ -5,7 +5,7 @@
 #include "FlatPlus.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
-#include "llvm/Transforms/Obfuscation/FlatPlusPass.hpp"
+#include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
 
 FlatPlus::FlatPlus() {
     // init random numeral generator

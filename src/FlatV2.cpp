@@ -1,7 +1,7 @@
 #include "FlatV2.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
-#include "llvm/Transforms/Obfuscation/FlatV2Pass.hpp"
+#include "llvm/Transforms/ToyObfuscator/FlatV2Pass.hpp"
 
 FlatV2::FlatV2() {
     // init random numeral generator
