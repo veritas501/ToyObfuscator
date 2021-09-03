@@ -246,7 +246,9 @@ void FlatPlus::initRandom() {
     imm32 = rng();
     imm8 = new uint8_t[subTransCnt];
     for (size_t i = 0; i < subTransCnt; i++) {
-        imm8[i] = (uint8_t)rng();
+        do {
+            imm8[i] = (rng() % (BITS_PER_BYTE * sizeof(uint32_t)));
+        } while (!imm8[i]);
     }
 }
 
