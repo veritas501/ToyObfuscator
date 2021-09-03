@@ -25,8 +25,8 @@ index 7cfc29f7b..66fe9c5a3 100644
  #include "llvm/Transforms/Vectorize.h"
  #include "llvm/Transforms/Vectorize/LoopVectorize.h"
  #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
-+#include "llvm/Transforms/Obfuscation/FlatPlusPass.hpp"
-+#include "llvm/Transforms/Obfuscation/FlatV2Pass.hpp"
++#include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
++#include "llvm/Transforms/ToyObfuscator/FlatV2Pass.hpp"
 
  using namespace llvm;
 
@@ -34,7 +34,7 @@ index 7cfc29f7b..66fe9c5a3 100644
      cl::desc("Enable the simple loop unswitch pass. Also enables independent "
               "cleanup passes integrated into the loop pass manager pipeline."));
 
-+// Flags for obfuscation
++// Flags for ToyObfuscator
 +static cl::opt<bool> FlatPlusPass("fla_plus", cl::init(false),
 +    cl::desc("Enable the fla_plus pass"));
 +
