@@ -17,6 +17,20 @@ make
 # lib at "./src/libToyObfuscator.so"
 ```
 
+build custom clang with obfuscator:
+
+```bash
+# clone llvm-10.0.1
+git clone https://github.com/llvm/llvm-project.git --depth 1 -b llvmorg-10.0.1
+# apply custom patch
+./build_clang.sh <DIR_TO_llvm-project>
+
+# normal build clang and llvm
+cd <DIR_TO_llvm-project>
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j`nproc` # or 'make clang -j`nproc`' for just compile clang
+```
 
 
 ## Usage
@@ -56,6 +70,9 @@ $ opt -load ./libToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
 $ clang demo_obf.bc -o demo_obf
 ```
 
+flags:
+- opt： `-fla_plus`, clang: `-mllvm -fla_plus`
+- opt： `-fla_v2`, clang: `-mllvm -fla_v2`
 
 
 - demo_obf.ll

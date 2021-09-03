@@ -5,6 +5,7 @@
 #include "FlatPlus.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
+#include "llvm/Transforms/Obfuscation/FlatPlusPass.hpp"
 
 FlatPlus::FlatPlus() {
     // init random numeral generator
@@ -153,7 +154,6 @@ bool FlatPlus::doFlat(Function &F) {
             // non-condition jump
             Instruction *terminator = bb->getTerminator();
             BasicBlock *successor = terminator->getSuccessor(0);
-            uint32_t xNow = blockInfos[bb].x;
             uint32_t yNow = blockInfos[bb].y;
             uint32_t xTarget = blockInfos[successor].x;
             uint32_t yTarget = blockInfos[successor].y;
@@ -178,7 +178,6 @@ bool FlatPlus::doFlat(Function &F) {
             Instruction *terminator = bb->getTerminator();
             BasicBlock *trueSuccessor = terminator->getSuccessor(0);
             BasicBlock *falseSuccessor = terminator->getSuccessor(1);
-            uint32_t xNow = blockInfos[bb].x;
             uint32_t yNow = blockInfos[bb].y;
             uint32_t xTrueTarget = blockInfos[trueSuccessor].x;
             uint32_t yTrueTarget = blockInfos[trueSuccessor].y;
@@ -257,7 +256,7 @@ uint32_t FlatPlus::genLabel(uint32_t x) {
     a = imm32;
     b = x;
 
-    for (int i = 0; i < subTransCnt; i++) {
+    for (size_t i = 0; i < subTransCnt; i++) {
         a = a + b;
         b = a ^ rol(b, imm8[i]);
     }
@@ -267,7 +266,7 @@ uint32_t FlatPlus::genLabel(uint32_t x) {
 }
 
 void FlatPlus::allocTransBlockPtr(IRBuilder<> &builder) {
-    for (int j = 0; j < sizeof(bakPtr) / sizeof(*bakPtr); j++) {
+    for (size_t j = 0; j < sizeof(bakPtr) / sizeof(*bakPtr); j++) {
         bakPtr[j] = builder.CreateAlloca(builder.getInt32Ty());
     }
 }
@@ -276,8 +275,8 @@ BasicBlock **FlatPlus::genTransBlocks(Function &F, Value *xPtr,
                                       Value *yPtr, Value *labelPtr) {
     BasicBlock **translates = new BasicBlock *[subTransCnt];
     char tmpBuf[0x40];
-    for (int i = 0; i < subTransCnt; i++) {
-        snprintf(tmpBuf, sizeof(tmpBuf), "Trans_%d", i);
+    for (size_t i = 0; i < subTransCnt; i++) {
+        snprintf(tmpBuf, sizeof(tmpBuf), "Trans_%ld", i);
         translates[i] = BasicBlock::Create(F.getContext(), tmpBuf, &F);
 
         IRBuilder<> builder(translates[i]);
@@ -316,7 +315,7 @@ BasicBlock **FlatPlus::genTransBlocks(Function &F, Value *xPtr,
 
 void FlatPlus::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
     size_t cnt = bb.size();
-    for (int i = 0; i < cnt * 2; i++) {
+    for (size_t i = 0; i < cnt * 2; i++) {
         auto first = bb[rng() % cnt];
         auto second = bb[rng() % cnt];
         first->moveBefore(second);
@@ -324,4 +323,5 @@ void FlatPlus::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
 }
 
 char FlatPlusPass::ID = 0;
-static RegisterPass<FlatPlusPass> X("fla_plus", "cfg flatten");
+static RegisterPass<FlatPlusPass> X("fla_plus", "cfg flatten plus");
+Pass *llvm::createFlatPlus(bool flag) { return new FlatPlusPass(flag); }

@@ -1,6 +1,7 @@
 #include "FlatV2.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
+#include "llvm/Transforms/Obfuscation/FlatV2Pass.hpp"
 
 FlatV2::FlatV2() {
     // init random numeral generator
@@ -281,8 +282,6 @@ bool FlatV2::argToStack(Function &F) {
 bool FlatV2::doFlat(Function &F) {
     // skip empty (maybe external) function
     if (F.size() == 0) {
-        errs() << "[!] "
-               << "Skip external function: " << F.getName() << "\n";
         return true;
     }
     // if only one basic block in this function, skip this function
@@ -461,7 +460,6 @@ bool FlatV2::doFlat(Function &F) {
             // non-condition jump
             Instruction *terminator = bb->getTerminator();
             BasicBlock *successor = terminator->getSuccessor(0);
-            uint32_t xNow = blockInfos[bb].x;
             uint32_t yNow = blockInfos[bb].y;
             uint32_t xTarget = blockInfos[successor].x;
             uint32_t yTarget = blockInfos[successor].y;
@@ -486,7 +484,6 @@ bool FlatV2::doFlat(Function &F) {
             Instruction *terminator = bb->getTerminator();
             BasicBlock *trueSuccessor = terminator->getSuccessor(0);
             BasicBlock *falseSuccessor = terminator->getSuccessor(1);
-            uint32_t xNow = blockInfos[bb].x;
             uint32_t yNow = blockInfos[bb].y;
             uint32_t xTrueTarget = blockInfos[trueSuccessor].x;
             uint32_t yTrueTarget = blockInfos[trueSuccessor].y;
@@ -559,8 +556,7 @@ bool FlatV2::doFlat(Function &F) {
     }
     // retblock.label -> nullptr (dispatch break)
     {
-        auto zeroFunc = ConstantExpr::getCast(
-            Instruction::BitCast, getConst32(F, 0), fnPtrTy);
+        auto zeroFunc = Constant::getNullValue(fnPtrTy); 
         labelFuncMap.insert(std::make_pair(blockInfos[retBlock].label, zeroFunc));
     }
 
@@ -568,4 +564,5 @@ bool FlatV2::doFlat(Function &F) {
 }
 
 char FlatV2Pass::ID = 0;
-static RegisterPass<FlatV2Pass> X("fla_v2", "cfg flatten");
+static RegisterPass<FlatV2Pass> X("fla_v2", "cfg flatten v2");
+Pass *llvm::createFlatV2(bool flag) { return new FlatV2Pass(flag); }

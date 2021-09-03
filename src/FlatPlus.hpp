@@ -50,13 +50,22 @@ protected:
 class FlatPlusPass : public FunctionPass {
 public:
     static char ID;
+    bool flag;
 
     FlatPlusPass() : FunctionPass(ID) {
         flatPlus = new FlatPlus();
+        flag = true;
+    }
+    FlatPlusPass(bool flag) : FunctionPass(ID) {
+        flatPlus = new FlatPlus();
+        this->flag = flag;
     }
 
     bool runOnFunction(Function &F) override {
-        return flatPlus->doFlat(F);
+        if (flag) {
+            return flatPlus->doFlat(F);
+        }
+        return true;
     }
 
 private:

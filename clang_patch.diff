@@ -1,0 +1,69 @@
+diff --git a/llvm/lib/Transforms/CMakeLists.txt b/llvm/lib/Transforms/CMakeLists.txt
+index dda5f6de1..a001a7ca9 100644
+--- a/llvm/lib/Transforms/CMakeLists.txt
++++ b/llvm/lib/Transforms/CMakeLists.txt
+@@ -9,3 +9,4 @@ add_subdirectory(Hello)
+ add_subdirectory(ObjCARC)
+ add_subdirectory(Coroutines)
+ add_subdirectory(CFGuard)
++add_subdirectory(ToyObfuscator)
+diff --git a/llvm/lib/Transforms/IPO/LLVMBuild.txt b/llvm/lib/Transforms/IPO/LLVMBuild.txt
+index 14aa4e4ba..0245d2a27 100644
+--- a/llvm/lib/Transforms/IPO/LLVMBuild.txt
++++ b/llvm/lib/Transforms/IPO/LLVMBuild.txt
+@@ -19,4 +19,4 @@ type = Library
+ name = IPO
+ parent = Transforms
+ library_name = ipo
+-required_libraries = AggressiveInstCombine Analysis BitReader BitWriter Core InstCombine IRReader Linker Object ProfileData Scalar Support TransformUtils Vectorize Instrumentation
++required_libraries = AggressiveInstCombine Analysis BitReader BitWriter Core InstCombine IRReader Linker Object ProfileData Scalar Support TransformUtils Vectorize Instrumentation ToyObfuscator
+diff --git a/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp b/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
+index 7cfc29f7b..66fe9c5a3 100644
+--- a/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
++++ b/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
+@@ -47,6 +47,8 @@
+ #include "llvm/Transforms/Vectorize.h"
+ #include "llvm/Transforms/Vectorize/LoopVectorize.h"
+ #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
++#include "llvm/Transforms/Obfuscation/FlatPlusPass.hpp"
++#include "llvm/Transforms/Obfuscation/FlatV2Pass.hpp"
+
+ using namespace llvm;
+
+@@ -129,6 +131,13 @@ static cl::opt<bool> EnableSimpleLoopUnswitch(
+     cl::desc("Enable the simple loop unswitch pass. Also enables independent "
+              "cleanup passes integrated into the loop pass manager pipeline."));
+
++// Flags for obfuscation
++static cl::opt<bool> FlatPlusPass("fla_plus", cl::init(false),
++    cl::desc("Enable the fla_plus pass"));
++
++static cl::opt<bool> FlatV2Pass("fla_v2", cl::init(false),
++    cl::desc("Enable the fla_v2 pass"));
++
+ static cl::opt<bool> EnableGVNSink(
+     "enable-gvn-sink", cl::init(false), cl::Hidden,
+     cl::desc("Enable the GVN sinking pass (default = off)"));
+@@ -483,6 +492,9 @@ void PassManagerBuilder::populateModulePassManager(
+   // Allow forcing function attributes as a debugging and tuning aid.
+   MPM.add(createForceFunctionAttrsLegacyPass());
+
++  MPM.add(createFlatPlus(FlatPlusPass));
++  MPM.add(createFlatV2(FlatV2Pass));
++
+   // If all optimizations are disabled, just run the always-inline pass and,
+   // if enabled, the function merging pass.
+   if (OptLevel == 0) {
+diff --git a/llvm/lib/Transforms/LLVMBuild.txt b/llvm/lib/Transforms/LLVMBuild.txt
+index 5fb5efcc0..cd291ddda 100644
+--- a/llvm/lib/Transforms/LLVMBuild.txt
++++ b/llvm/lib/Transforms/LLVMBuild.txt
+@@ -15,7 +15,7 @@
+ ;===------------------------------------------------------------------------===;
+
+ [common]
+-subdirectories = AggressiveInstCombine Coroutines IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC CFGuard
++subdirectories = AggressiveInstCombine Coroutines IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC CFGuard ToyObfuscator
+
+ [component_0]
+ type = Group

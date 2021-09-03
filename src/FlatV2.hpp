@@ -50,13 +50,23 @@ protected:
 class FlatV2Pass : public ModulePass {
 public:
     static char ID;
+    bool flag;
 
     FlatV2Pass() : ModulePass(ID) {
         flatV2 = new FlatV2();
+        flag = true;
+    }
+
+    FlatV2Pass(bool flag) : ModulePass(ID) {
+        flatV2 = new FlatV2();
+        this->flag = flag;
     }
 
     bool runOnModule(Module &M) override {
-        return flatV2->doFlat(M);
+        if (flag) {
+            return flatV2->doFlat(M);
+        }
+        return true;
     }
 
 private:
