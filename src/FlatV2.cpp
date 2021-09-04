@@ -34,7 +34,7 @@ bool FlatV2::doFlat(Module &M) {
     // create global label
     Type *varTy = Type::getInt32Ty(M.getContext());
     labelGVar = new GlobalVariable(
-        M, varTy, false, GlobalValue::ExternalLinkage, nullptr, "label");
+        M, varTy, false, GlobalValue::InternalLinkage, nullptr, "label");
     labelGVar->setDSOLocal(true);
     labelGVar->setInitializer(UndefValue::get(varTy));
 
@@ -62,9 +62,6 @@ bool FlatV2::doFlat(Module &M) {
 
 bool FlatV2::createDispatchFuncSymbol(Module &M) {
     if (dispatchFunc) {
-        errs() << "[!] "
-               << "createDispatchFuncSymbol: symbol already created"
-               << "\n";
         // already created
         return true;
     }
@@ -75,7 +72,7 @@ bool FlatV2::createDispatchFuncSymbol(Module &M) {
     FunctionType *fn2Ty = FunctionType::get(
         fnPtrTy, false);
     dispatchFunc = Function::Create(
-        fn2Ty, GlobalValue::ExternalLinkage, "dispatchFunc", M);
+        fn2Ty, Function::InternalLinkage, "dispatchFunc", M);
 
     return true;
 }
@@ -83,7 +80,7 @@ bool FlatV2::createDispatchFuncSymbol(Module &M) {
 bool FlatV2::createDispatchFunc(Module &M) {
     if (!dispatchFunc || !labelGVar ||
         !dispatchTblTy || !jumpTable) {
-        errs() << "[!] "
+        errs() << "[-] "
                << "createDispatchFunc: something not initialized"
                << "\n";
         return false;
@@ -130,7 +127,7 @@ bool FlatV2::createJumpTable(
     Module &M, std::set<std::pair<uint32_t, Constant *>> &labelFuncSet) {
     if (!fnTy || !fnPtrTy) {
         // something not initialized
-        errs() << "[!] "
+        errs() << "[-] "
                << "createJumpTable: something not initialized"
                << "\n";
         return false;
@@ -155,7 +152,7 @@ bool FlatV2::createJumpTable(
 
     // create global variable
     jumpTable = new GlobalVariable(
-        M, dispatchTblTy, /* const */ true, GlobalValue::ExternalLinkage, nullptr);
+        M, dispatchTblTy, /* const */ true, GlobalValue::InternalLinkage, nullptr, "jumpTable");
     Constant *jumpTableInitializer = ConstantArray::get(dispatchTblTy, tableElems);
     jumpTable->setInitializer(jumpTableInitializer);
 
@@ -166,7 +163,7 @@ bool FlatV2::createJumpTable(
 bool FlatV2::oneReturn(Function &F) {
     std::vector<BasicBlock *> retBlock;
     for (BasicBlock &bb : F) {
-        if (bb.getTerminator()->getNumSuccessors() == 0) {
+        if (isa<ReturnInst>(bb.getTerminator())) {
             retBlock.emplace_back(&bb);
         }
     }
@@ -178,18 +175,32 @@ bool FlatV2::oneReturn(Function &F) {
     // alloc tmp ret variable in prologue block
     BasicBlock *prologue = &*F.begin();
     IRBuilder<> varBuilder(prologue, prologue->begin());
-    AllocaInst *retVarPtr = varBuilder.CreateAlloca(F.getReturnType());
+    Type *retTy = F.getReturnType();
+    if (retTy->isVoidTy()) {
+        // ret void
+        auto itr = retBlock.begin();
+        // get first  ret block
+        BasicBlock *firstRetBlock = *itr++;
+        while (itr != retBlock.end()) {
+            // other ret block jump to first ret block
+            BasicBlock *bb = *itr++;
+            bb->getTerminator()->eraseFromParent();
+            IRBuilder<> tmp_builder(bb);
+            tmp_builder.CreateBr(firstRetBlock);
+        }
+    } else {
+        // ret val
+        AllocaInst *retVarPtr = varBuilder.CreateAlloca(retTy);
 
-    // create new return block
-    BasicBlock *newRetBlock = BasicBlock::Create(F.getContext(), "", &F);
-    IRBuilder<> newRetBuilder(newRetBlock);
-    auto retVar = newRetBuilder.CreateLoad(retVarPtr);
-    newRetBuilder.CreateRet(retVar);
+        // create new return block
+        BasicBlock *newRetBlock = BasicBlock::Create(F.getContext(), "", &F);
+        IRBuilder<> newRetBuilder(newRetBlock);
+        auto retVar = newRetBuilder.CreateLoad(retVarPtr);
+        newRetBuilder.CreateRet(retVar);
 
-    // edit each origin return block
-    for (BasicBlock *bb : retBlock) {
-        Instruction *term = bb->getTerminator();
-        if (isa<ReturnInst>(term)) {
+        // edit each origin return block
+        for (BasicBlock *bb : retBlock) {
+            Instruction *term = bb->getTerminator();
             Value *value = term->getOperand(0);
             bb->getTerminator()->eraseFromParent();
             IRBuilder<> tmp_builder(bb);
@@ -215,7 +226,7 @@ bool FlatV2::stackToGlobal(Function &F) {
                 AllocaInst *allocaInst = dyn_cast<AllocaInst>(&inst);
                 Type *instType = allocaInst->getAllocatedType();
                 GlobalVariable *tmpGVar = new GlobalVariable(
-                    M, instType, false, GlobalValue::ExternalLinkage,
+                    M, instType, false, GlobalValue::InternalLinkage,
                     nullptr, "g");
                 tmpGVar->setDSOLocal(true);
                 tmpGVar->setInitializer(UndefValue::get(instType));
@@ -236,7 +247,7 @@ Function *FlatV2::extractBlockFromFunction(BasicBlock &BB) {
     // create a function
     FunctionType *ft = FunctionType::get(
         Type::getVoidTy(M.getContext()), false);
-    Function *extractFunc = Function::Create(ft, Function::ExternalLinkage, "extract", M);
+    Function *extractFunc = Function::Create(ft, Function::InternalLinkage, "extract", M);
     BB.removeFromParent();
     BB.insertInto(extractFunc);
 
@@ -252,8 +263,6 @@ bool FlatV2::argToStack(Function &F) {
     size_t argSize = F.arg_size();
 
     if (F.size() < 1) {
-        errs() << "[!] "
-               << "Empty function: " << F.getName() << "\n";
         return true;
     }
     if (F.isVarArg()) {
@@ -286,13 +295,9 @@ bool FlatV2::doFlat(Function &F) {
     }
     // if only one basic block in this function, skip this function
     if (F.size() == 1) {
-        errs() << "[!] "
-               << "Skip one block function: " << F.getName() << "\n";
         return true;
     }
     if (F.isVarArg()) {
-        errs() << "[!] "
-               << "Skip varargs function: " << F.getName() << "\n";
         return true;
     }
 
@@ -386,7 +391,7 @@ bool FlatV2::doFlat(Function &F) {
         blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
     }
     // retblock not in useful, but also need blockinfo
-    {
+    if (retBlock) {
         uint32_t x, y, label;
         do {
             x = rng();
@@ -423,7 +428,12 @@ bool FlatV2::doFlat(Function &F) {
         CallInst *nextFunc = vmBuilder1.CreateCall(dispatchFunc);
         ConstantPointerNull *nullPtr = ConstantPointerNull::get(fnPtrTy);
         ICmpInst *funcIsNull = new ICmpInst(*dispatchBlock1, ICmpInst::ICMP_EQ, nextFunc, nullPtr);
-        vmBuilder1.CreateCondBr(funcIsNull, retBlock, dispatchBlock2);
+        if (retBlock) {
+            vmBuilder1.CreateCondBr(funcIsNull, retBlock, dispatchBlock2);
+        } else {
+            vmBuilder1.CreateBr(dispatchBlock2);
+        }
+
         vmBuilder2.CreateCall(nextFunc);
         vmBuilder2.CreateBr(dispatchBlock1);
     }
@@ -555,8 +565,8 @@ bool FlatV2::doFlat(Function &F) {
         labelFuncMap.insert(std::make_pair(blockInfos[bb].label, newFunc));
     }
     // retblock.label -> nullptr (dispatch break)
-    {
-        auto zeroFunc = Constant::getNullValue(fnPtrTy); 
+    if (retBlock) {
+        auto zeroFunc = Constant::getNullValue(fnPtrTy);
         labelFuncMap.insert(std::make_pair(blockInfos[retBlock].label, zeroFunc));
     }
 

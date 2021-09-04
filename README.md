@@ -3,7 +3,7 @@
 Some simple obfuscator ;)
 
 - `-fla_plus`: control flow graph flatten plus version
-- `-fla_v2`: control flow graph flatten ver2
+- `-fla_v2`: control flow graph flatten ver2 (still buggy)
 
 ## Compile
 

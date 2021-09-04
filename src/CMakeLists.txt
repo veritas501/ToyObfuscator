@@ -9,3 +9,5 @@ add_library(LLVMToyObfuscator
   FlatPlus.cpp
   FlatV2.cpp
 )
+
+add_dependencies(LLVMToyObfuscator intrinsics_gen)
