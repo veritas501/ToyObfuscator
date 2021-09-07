@@ -7,6 +7,7 @@
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
 #include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
+#include <algorithm>
 
 FlatPlus::FlatPlus() {
     // init random numeral generator
@@ -28,19 +29,47 @@ bool FlatPlus::doFlat(Function &F) {
     // lower switch
     createLegacyLowerSwitchPass()->runOnFunction(F);
 
-    // insert all basic block except prologue into list
-    SmallVector<BasicBlock *, 0> useful;
+    // get blocks that has LandingPadInst inside or are successors of
+    // the blocks who has LandingPadInst inside.
+    std::vector<BasicBlock *> excepts;
+    {
+        std::vector<BasicBlock *> pending;
+        for (BasicBlock &bb : F) {
+            if (isa<LandingPadInst>(bb.getFirstNonPHI())) {
+                pending.emplace_back(&bb);
+            }
+        }
+        while (pending.size()) {
+            BasicBlock *tmpBB = pending.back();
+            pending.pop_back();
+            // found in excepts
+            if (find(excepts.begin(), excepts.end(),
+                     tmpBB) != excepts.end()) {
+                continue;
+            }
+            excepts.emplace_back(tmpBB);
+            auto term = tmpBB->getTerminator();
+            for (size_t i = 0; i < term->getNumSuccessors(); i++) {
+                BasicBlock *tmpSucc = term->getSuccessor(i);
+                // not in pending
+                if (find(pending.begin(), pending.end(),
+                         tmpSucc) == pending.end()) {
+                    pending.emplace_back(tmpSucc);
+                }
+            }
+        }
+    }
+
+    // insert all basic block except prologue and expections into list
+    SmallVector<BasicBlock *, 4> useful;
     for (BasicBlock &bb : F) {
+        // found in exception block list
+        if (find(excepts.begin(), excepts.end(),
+                 &bb) != excepts.end()) {
+            continue;
+        }
         useful.emplace_back(&bb);
 
-        // ollvm can't deal with InvokeInst, which used by
-        // @synchronized, try...catch, etc
-        if (isa<InvokeInst>(bb.getTerminator())) {
-            errs() << "[-] "
-                   << "Can't deal with `InvokeInst` in function: "
-                   << F.getName() << "\n";
-            return false;
-        }
         // we should run pass lower switch before flat,
         // or we can't deal with SwitchInst
         if (isa<SwitchInst>(bb.getTerminator())) {
@@ -60,15 +89,19 @@ bool FlatPlus::doFlat(Function &F) {
     }
     useful.erase(useful.begin());
 
-    // if prologue's terminator is BranchInst or IndirectBrInst,
+    // if prologue's terminator is BranchInst or InvokeInst,
     // then split it into two blocks
     BasicBlock *prologue = &*F.begin();
-    if (isa<BranchInst>(prologue->getTerminator())) {
+    if (isa<BranchInst>(prologue->getTerminator()) ||
+        isa<InvokeInst>(prologue->getTerminator())) {
         auto iter = prologue->end();
-        iter--;
-        if (prologue->size() > 1) {
-            iter--;
-        }
+        while (iter != prologue->begin()) {
+            --iter;
+            if (isa<AllocaInst>(*iter)) {
+                ++iter;
+                break;
+            }
+        };
         BasicBlock *tempBlock = prologue->splitBasicBlock(iter);
         useful.insert(useful.begin(), tempBlock);
     }
@@ -81,18 +114,11 @@ bool FlatPlus::doFlat(Function &F) {
     BasicBlock *dispatcher = BasicBlock::Create(F.getContext(), "Dispatcher", &F);
     BasicBlock *defaultBr = BasicBlock::Create(F.getContext(), "DefaultBranch", &F);
 
-    // give each useful block  a pair of (x, y), x is unique
-    std::map<BasicBlock *, struct labelInfo> blockInfos;
-    std::set<uint32_t> xValSet;
+    initBlockInfo();
+
+    // give each useful block a pair of (x, y), x is uniqu
     for (BasicBlock *bb : useful) {
-        uint32_t x, y, label;
-        do {
-            x = rng();
-            y = rng();
-            label = genLabel(x);
-        } while ((xValSet.find(x) != xValSet.end()) && label);
-        xValSet.insert(x);
-        blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
+        genBlockInfo(bb);
     }
 
     // initial x, y in prologue (jump to first block)
@@ -118,15 +144,12 @@ bool FlatPlus::doFlat(Function &F) {
 
     // give each translate block a pair of (x, y), x is unique
     for (size_t i = 0; i < subTransCnt; i++) {
-        BasicBlock *bb = translates[i];
-        uint32_t x, y, label;
-        do {
-            x = rng();
-            y = rng();
-            label = genLabel(x);
-        } while ((xValSet.find(x) != xValSet.end()) && label);
-        xValSet.insert(x);
-        blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
+        genBlockInfo(translates[i]);
+    }
+
+    // give each exception block a pair of (x, y), x is unique
+    for (BasicBlock *bb : excepts) {
+        genBlockInfo(bb);
     }
 
     // build dispatcher block
@@ -153,6 +176,35 @@ bool FlatPlus::doFlat(Function &F) {
     // Recalculate switch Instruction
     ConstantInt *firstTransBlockLabel = dispatchSwitch->findCaseDest(translates[0]);
     for (BasicBlock *bb : useful) {
+        // is InvokeInst
+        if (isa<InvokeInst>(bb->getTerminator())) {
+            auto term = bb->getTerminator();
+            BasicBlock *normalSuccessor = term->getSuccessor(0);
+            uint32_t yNow = blockInfos[bb].y;
+            uint32_t xTarget = blockInfos[normalSuccessor].x;
+            uint32_t yTarget = blockInfos[normalSuccessor].y;
+
+            auto trampolineBlock = BasicBlock::Create(F.getContext(), "invokeTrampoline", &F);
+
+            auto invokeTerm = dyn_cast<InvokeInst>(term);
+            invokeTerm->setNormalDest(trampolineBlock);
+
+            IRBuilder<> trampolineBuilder(trampolineBlock);
+
+            auto v1 = trampolineBuilder.CreateLoad(yPtr);
+            auto v2 = trampolineBuilder.CreateXor(v1, xTarget ^ yNow);
+            trampolineBuilder.CreateStore(v2, xPtr);
+
+            auto v3 = trampolineBuilder.CreateLoad(xPtr);
+            auto v4 = trampolineBuilder.CreateXor(v3, xTarget ^ yTarget);
+            trampolineBuilder.CreateStore(v4, yPtr);
+
+            trampolineBuilder.CreateStore(firstTransBlockLabel, labelPtr);
+            trampolineBuilder.CreateBr(dispatcher);
+            continue;
+        }
+
+        // not InvokeInst
         switch (bb->getTerminator()->getNumSuccessors()) {
         case 0: {
             // no terminator
@@ -242,10 +294,13 @@ bool FlatPlus::doFlat(Function &F) {
         BasicBlock *bb = translates[i];
         allBlocks.emplace_back(bb);
     }
+    for (BasicBlock *bb : excepts) {
+        allBlocks.emplace_back(bb);
+    }
 
     shuffleBlock(allBlocks);
 
-    fixStack(&F);
+    fixStack(F);
     return true;
 }
 
@@ -272,6 +327,22 @@ uint32_t FlatPlus::genLabel(uint32_t x) {
 
     label = b;
     return label;
+}
+
+void FlatPlus::initBlockInfo() {
+    labelSet.clear();
+    blockInfos.clear();
+}
+
+void FlatPlus::genBlockInfo(BasicBlock *bb) {
+    uint32_t x, y, label;
+    do {
+        x = rng();
+        y = rng();
+        label = genLabel(x);
+    } while ((labelSet.find(label) != labelSet.end()) && label);
+    labelSet.insert(label);
+    blockInfos.insert(std::make_pair(bb, labelInfo{x, y, label}));
 }
 
 void FlatPlus::allocTransBlockPtr(IRBuilder<> &builder) {

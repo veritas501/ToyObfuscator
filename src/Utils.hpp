@@ -37,4 +37,4 @@ ConstantInt *getConst32(T &x, uint32_t v) {
 bool valueEscapes(Instruction *Inst);
 
 // copied from ollvm
-void fixStack(Function *f);
+void fixStack(Function &F);

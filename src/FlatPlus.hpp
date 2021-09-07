@@ -33,11 +33,17 @@ protected:
     uint8_t *imm8 = nullptr;
     AllocaInst *bakPtr[2] = {nullptr};
 
+    std::map<BasicBlock *, struct labelInfo> blockInfos;
+    std::set<uint32_t> labelSet;
+
     // init random parameter
     void initRandom();
 
     // detail translate algo
     uint32_t genLabel(uint32_t x);
+
+    void initBlockInfo();
+    void genBlockInfo(BasicBlock *bb);
 
     void allocTransBlockPtr(IRBuilder<> &builder);
 
