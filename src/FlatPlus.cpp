@@ -3,6 +3,7 @@
  * Some function copied from https://github.com/obfuscator-llvm/obfuscator
  */
 #include "FlatPlus.hpp"
+#include "LegacyIndirectBrExpand.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
 #include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
@@ -15,17 +16,17 @@ FlatPlus::FlatPlus() {
 bool FlatPlus::doFlat(Function &F) {
     // if only one basic block in this function, skip this function
     if (F.size() <= 1) {
-        errs() << "[!] "
-               << "Skip one block function: " << F.getName() << "\n";
         return false;
     }
 
     // re-init random for different function
     initRandom();
 
+    // expand IndirectBrInst to SwitchInst
+    createLegacyIndirectBrExpandPass()->runOnFunction(F);
+
     // lower switch
-    FunctionPass *lower = createLegacyLowerSwitchPass();
-    lower->runOnFunction(F);
+    createLegacyLowerSwitchPass()->runOnFunction(F);
 
     // insert all basic block except prologue into list
     SmallVector<BasicBlock *, 0> useful;
@@ -48,14 +49,21 @@ bool FlatPlus::doFlat(Function &F) {
                    << F.getName() << "\n";
             return false;
         }
+        // we should run pass lower switch before flat,
+        // or we can't deal with IndirectBrInst
+        if (isa<IndirectBrInst>(bb.getTerminator())) {
+            errs() << "[-] "
+                   << "Can't deal with `IndirectBrInst` in function: "
+                   << F.getName() << "\n";
+            return false;
+        }
     }
     useful.erase(useful.begin());
 
     // if prologue's terminator is BranchInst or IndirectBrInst,
     // then split it into two blocks
     BasicBlock *prologue = &*F.begin();
-    if (isa<BranchInst>(prologue->getTerminator()) ||
-        isa<IndirectBrInst>(prologue->getTerminator())) {
+    if (isa<BranchInst>(prologue->getTerminator())) {
         auto iter = prologue->end();
         iter--;
         if (prologue->size() > 1) {
@@ -205,7 +213,8 @@ bool FlatPlus::doFlat(Function &F) {
             break;
         }
         default: {
-            // should not happen, may be a SwitchInst
+            // should not happen, may be a SwitchInst or IndirectBrInst
+            assert(0 && "Maybe SwitchInst or IndirectBrInst still exist ???");
             break;
         }
         }
@@ -241,7 +250,7 @@ bool FlatPlus::doFlat(Function &F) {
 }
 
 void FlatPlus::initRandom() {
-    subTransCnt = (rng() & 7) + 3;
+    subTransCnt = (rng() % 3) + 2; // 2,3,4
     imm32 = rng();
     imm8 = new uint8_t[subTransCnt];
     for (size_t i = 0; i < subTransCnt; i++) {

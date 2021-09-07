@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 14)
 add_library(LLVMToyObfuscator
   MODULE
   Utils.cpp
+  LegacyIndirectBrExpand.cpp
   LegacyLowerSwitch.cpp
   FlatPlus.cpp
 )

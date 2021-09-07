@@ -13,7 +13,7 @@ mkdir build && cd build
 cmake .. -DLLVM_DIR=/usr/lib/llvm-10/lib/cmake/llvm/
 make -j`nproc`
 
-# lib at "./src/libToyObfuscator.so"
+# lib at "./src/libLLVMToyObfuscator.so"
 ```
 
 build custom clang with obfuscator:
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
 ```bash
 $ clang -emit-llvm -c demo.c -o demo.bc
-$ opt -load ./libToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
+$ opt -load ./libLLVMToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
 $ clang demo_obf.bc -o demo_obf
 ```
 
