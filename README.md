@@ -3,7 +3,6 @@
 Some simple obfuscator ;)
 
 - `-fla_plus`: control flow graph flatten plus version
-- `-fla_v2`: control flow graph flatten ver2 (still buggy)
 
 ## Compile
 
@@ -12,7 +11,7 @@ git clone https://github.com/veritas501/ToyObfuscator.git
 cd ToyObfuscator
 mkdir build && cd build
 cmake .. -DLLVM_DIR=/usr/lib/llvm-10/lib/cmake/llvm/
-make
+make -j`nproc`
 
 # lib at "./src/libToyObfuscator.so"
 ```
@@ -69,11 +68,6 @@ $ clang -emit-llvm -c demo.c -o demo.bc
 $ opt -load ./libToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
 $ clang demo_obf.bc -o demo_obf
 ```
-
-flags:
-- opt： `-fla_plus`, clang: `-mllvm -fla_plus`
-- opt： `-fla_v2`, clang: `-mllvm -fla_v2`
-
 
 - demo_obf.ll
 

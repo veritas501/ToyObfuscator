@@ -7,7 +7,6 @@ add_library(LLVMToyObfuscator
   Utils.cpp
   LegacyLowerSwitch.cpp
   FlatPlus.cpp
-  FlatV2.cpp
 )
 
 add_dependencies(LLVMToyObfuscator intrinsics_gen)
