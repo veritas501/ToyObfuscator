@@ -169,6 +169,9 @@ bool FlatPlus::doFlat(Function &F) {
         BasicBlock *bb = translates[i];
         dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
     }
+    for (BasicBlock *bb : excepts) {
+        dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
+    }
 
     // correct init label in prologue block
     labelStore->setOperand(0, dispatchSwitch->findCaseDest(translates[0]));
