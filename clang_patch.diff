@@ -18,32 +18,37 @@ index 14aa4e4ba..4c40ec915 100644
 -required_libraries = AggressiveInstCombine Analysis BitReader BitWriter Core InstCombine IRReader Linker Object ProfileData Scalar Support TransformUtils Vectorize Instrumentation
 +required_libraries = AggressiveInstCombine Analysis BitReader BitWriter Core InstCombine IRReader Linker Object ProfileData Scalar Support TransformUtils Vectorize Instrumentation ToyObfuscator
 diff --git a/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp b/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
-index 7cfc29f7b..d956dba1b 100644
+index 7cfc29f7b..d3548d9c0 100644
 --- a/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
 +++ b/llvm/lib/Transforms/IPO/PassManagerBuilder.cpp
-@@ -47,6 +47,7 @@
+@@ -47,6 +47,8 @@
  #include "llvm/Transforms/Vectorize.h"
  #include "llvm/Transforms/Vectorize/LoopVectorize.h"
  #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
 +#include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
- 
++#include "llvm/Transforms/ToyObfuscator/BogusControlFlowPass.hpp"
+
  using namespace llvm;
- 
-@@ -129,6 +130,10 @@ static cl::opt<bool> EnableSimpleLoopUnswitch(
+
+@@ -129,6 +131,13 @@ static cl::opt<bool> EnableSimpleLoopUnswitch(
      cl::desc("Enable the simple loop unswitch pass. Also enables independent "
               "cleanup passes integrated into the loop pass manager pipeline."));
- 
+
 +// Flags for ToyObfuscator
 +static cl::opt<bool> FlatPlusPass("fla_plus", cl::init(false),
 +    cl::desc("Enable the fla_plus pass"));
 +
++static cl::opt<bool> BogusControlFlowPass("bcf", cl::init(false),
++    cl::desc("Enable the bcf pass"));
++
  static cl::opt<bool> EnableGVNSink(
      "enable-gvn-sink", cl::init(false), cl::Hidden,
      cl::desc("Enable the GVN sinking pass (default = off)"));
-@@ -483,6 +488,8 @@ void PassManagerBuilder::populateModulePassManager(
+@@ -483,6 +492,9 @@ void PassManagerBuilder::populateModulePassManager(
    // Allow forcing function attributes as a debugging and tuning aid.
    MPM.add(createForceFunctionAttrsLegacyPass());
- 
+
++  MPM.add(createBogusControlFlow(BogusControlFlowPass));
 +  MPM.add(createFlatPlus(FlatPlusPass));
 +
    // If all optimizations are disabled, just run the always-inline pass and,
@@ -55,10 +60,10 @@ index 5fb5efcc0..30d010b21 100644
 +++ b/llvm/lib/Transforms/LLVMBuild.txt
 @@ -15,7 +15,7 @@
  ;===------------------------------------------------------------------------===;
- 
+
  [common]
 -subdirectories = AggressiveInstCombine Coroutines IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC CFGuard
 +subdirectories = AggressiveInstCombine Coroutines IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC CFGuard ToyObfuscator
- 
+
  [component_0]
  type = Group

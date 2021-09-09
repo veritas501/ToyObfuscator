@@ -6,6 +6,7 @@
 #include "LegacyIndirectBrExpand.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
 #include <algorithm>
 
@@ -79,8 +80,6 @@ bool FlatPlus::doFlat(Function &F) {
                  &bb) != excepts.end()) {
             continue;
         }
-        useful.emplace_back(&bb);
-
         // we should run pass lower switch before flat,
         // or we can't deal with SwitchInst
         if (isa<SwitchInst>(bb.getTerminator())) {
@@ -97,6 +96,7 @@ bool FlatPlus::doFlat(Function &F) {
                    << F.getName() << "\n";
             return false;
         }
+        useful.emplace_back(&bb);
     }
     useful.erase(useful.begin());
 
@@ -284,7 +284,7 @@ bool FlatPlus::doFlat(Function &F) {
         }
         default: {
             // should not happen, may be a SwitchInst or IndirectBrInst
-            assert(0 && "Maybe SwitchInst or IndirectBrInst still exist ???");
+            assert(0 && "WTF, SwitchInst or IndirectBrInst still exist ???");
             break;
         }
         }
@@ -451,4 +451,7 @@ bool FlatPlusPass::runOnFunction(Function &F) {
 
 char FlatPlusPass::ID = 0;
 static RegisterPass<FlatPlusPass> X("fla_plus", "cfg flatten plus");
-Pass *llvm::createFlatPlus(bool flag) { return new FlatPlusPass(flag); }
+
+Pass *llvm::createFlatPlus(bool flag) {
+    return new FlatPlusPass(flag);
+}
