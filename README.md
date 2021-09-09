@@ -33,8 +33,10 @@ make -j`nproc` # or 'make clang -j`nproc`' for just compile clang
 ## Pass flags
 
 - `-fla_plus`: control flow graph flatten plus version
-    - `-dont_fla_invoke`: used with `-fla_plus`, flattening each function except which contains InvokeInst
-    - `-fla_cnt=X`: used with `-fla_plus`, do flatten X times
+    - `-dont_fla_invoke`: used with `-fla_plus`, flattening each function except which contains InvokeInst (default=false)
+    - `-fla_cnt=X`: used with `-fla_plus`, do flatten X times (default=1, max=3)
+- `-bcf`: bogus control flow
+    - `-bcf_rate`: the probability that each basic block will be obfuscated. (default=30, max=100)
 
 ## Quickstart
 
@@ -252,3 +254,16 @@ Trans_2:                                          ; preds = %Dispatcher
 ![](assets/flat_plus.jpg)
 
 这里我引入了x, y, label三个变量（目前设计为三个`uint32_t`）。粗略一看可以发现，所有的useful block后面设置的label都为label1，而label1指向trans-1。在switch中不仅存在useful block，还存在translate block。translate block的作用是进行一个f的运算，因为label和x存在如下关系：`label=f(x)`。所以，在我的这个方案中，A->B并不是依靠写在block后面的label值，而是x值。那有人就要问了，那我拿到A中的x，不就能计算出对应的label，得到A->B的关系了吗？并没这么容易。我们发现，x的获取并不是简单的赋值，而是使用的xor，`x=y^imm32_const1; y=x^imm32_const2`。因此，想要得到A执行完x的值，还必须知道进入A时的y值，而y值并不存在于label的计算也不存在于switch的分发中。因此，想要知道A的后继，必须知道进入A时的y值，而这个y值单纯将A抽出来分析是无法得到的，因为它和程序的运行态相关，得到的方法只有将这个flat函数完整从prologue开始模拟到A块的开头，正如程序正常执行时那样。因此，这个方法也不是万能的，依然有破解的方法，只是不能像之前那样将一个个block拉出来逐个击破。
+
+### bcf
+
+虚假控制流一般就是通过不透明谓词（opaque predicates）来实现。
+
+例如ollvm中所用的是`(y < 10 || x * (x + 1) % 2 == 0)`，其中x, y是全局变量且初值为0，因此这个等式恒成立。
+由于从binary角度分析，x, y被分配在`.bss`上，IDA并不会将其视为常量0，故不会对这个等式进行化简。
+
+其实关于不透明谓词我们明显有更好的对象，例如构造满足条件的`sqrt(b^2-4ac)`让其恒小于0，这种式子IDA还没有能力分析出结果。
+
+或者如我借鉴的[这篇文章](https://blog.quarkslab.com/turning-regular-code-into-atrocities-with-llvm.html)所述，
+构造两个不同的素数p1, p2，再取两个不同的正整数常数a1, a2，再从程序中随机挑选两个int类型的变量v1, v2，则下述不等式恒成立：
+`p1*((v1|a1)^2) != p2*((v2|a2)^2)`。
