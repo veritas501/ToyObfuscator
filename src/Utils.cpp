@@ -9,9 +9,12 @@ bool valueEscapes(Instruction *inst) {
         if (!PN) {
             if (xrefInst->getParent() != bb) {
                 if (isa<InvokeInst>(inst) && isa<StoreInst>(xrefInst)) {
+                    auto invokeInst = dyn_cast<InvokeInst>(inst);
+                    auto normalDest = invokeInst->getNormalDest();
                     auto storeInst = dyn_cast<StoreInst>(xrefInst);
                     auto storeTarget = storeInst->getOperand(1);
-                    if (isa<AllocaInst>(storeTarget)) {
+                    if (storeInst->getParent() == normalDest &&
+                        isa<AllocaInst>(storeTarget)) {
                         continue;
                     }
                 }

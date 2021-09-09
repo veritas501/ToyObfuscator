@@ -149,7 +149,9 @@ bool FlatPlus::doFlat(Function &F) {
 
     // give each exception block a pair of (x, y), x is unique
     for (BasicBlock *bb : excepts) {
+        if (!isa<LandingPadInst>(bb->getFirstNonPHIOrDbgOrLifetime())) {
         genBlockInfo(bb);
+        }
     }
 
     // build dispatcher block
@@ -170,7 +172,9 @@ bool FlatPlus::doFlat(Function &F) {
         dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
     }
     for (BasicBlock *bb : excepts) {
+        if (!isa<LandingPadInst>(bb->getFirstNonPHIOrDbgOrLifetime())) {
         dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
+        }
     }
 
     // correct init label in prologue block
