@@ -5,6 +5,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
@@ -13,6 +14,10 @@
 #include <vector>
 
 using namespace llvm;
+
+static cl::opt<bool> DontFlaInvoke(
+    "dont_fla_invoke", cl::init(false),
+    cl::desc("Don't flat this function if find InvokeInst inside"));
 
 struct labelInfo {
     uint32_t x;
@@ -69,6 +74,14 @@ public:
 
     bool runOnFunction(Function &F) override {
         if (flag) {
+            // -dont_fla_invoke
+            if (DontFlaInvoke) {
+                for (BasicBlock &bb : F) {
+                    if (isa<InvokeInst>(bb.getTerminator())) {
+                        return true;
+                    }
+                }
+            }
             return flatPlus->doFlat(F);
         }
         return true;
