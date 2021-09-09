@@ -33,6 +33,8 @@ make -j`nproc` # or 'make clang -j`nproc`' for just compile clang
 ## Pass flags
 
 - `-fla_plus`: control flow graph flatten plus version
+    - `-dont_fla_invoke`: used with `-fla_plus`, flattening each function except which contains InvokeInst
+    - `-fla_cnt=X`: used with `-fla_plus`, do flatten X times
 
 ## Quickstart
 

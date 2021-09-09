@@ -15,10 +15,6 @@
 
 using namespace llvm;
 
-static cl::opt<bool> DontFlaInvoke(
-    "dont_fla_invoke", cl::init(false),
-    cl::desc("Don't flat this function if find InvokeInst inside"));
-
 struct labelInfo {
     uint32_t x;
     uint32_t y;
@@ -72,20 +68,7 @@ public:
         this->flag = flag;
     }
 
-    bool runOnFunction(Function &F) override {
-        if (flag) {
-            // -dont_fla_invoke
-            if (DontFlaInvoke) {
-                for (BasicBlock &bb : F) {
-                    if (isa<InvokeInst>(bb.getTerminator())) {
-                        return true;
-                    }
-                }
-            }
-            return flatPlus->doFlat(F);
-        }
-        return true;
-    }
+    bool runOnFunction(Function &F) override;
 
 private:
     FlatPlus *flatPlus = nullptr;

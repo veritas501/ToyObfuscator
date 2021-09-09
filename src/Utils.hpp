@@ -33,6 +33,10 @@ ConstantInt *getConst32(T &x, uint32_t v) {
     return ConstantInt::get(Type::getInt32Ty(x.getContext()), v);
 }
 
+std::string readAnnotate(Function &F);
+
+bool doObfuscation(Function &F, std::string anno, bool flag);
+
 // copied from ollvm
 bool valueEscapes(Instruction *Inst);
 

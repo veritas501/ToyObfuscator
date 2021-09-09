@@ -9,6 +9,17 @@
 #include "llvm/Transforms/ToyObfuscator/FlatPlusPass.hpp"
 #include <algorithm>
 
+#define MAX_FLA_CNT (3)
+#define MAX_FLA_CNT_STR "3"
+
+static cl::opt<bool> DontFlaInvoke(
+    "dont_fla_invoke", cl::init(false),
+    cl::desc("Don't flat this function if find InvokeInst inside"));
+
+static cl::opt<int> FlaCnt(
+    "fla_cnt", cl::init(1),
+    cl::desc("do flatten X times (default=1, max=" MAX_FLA_CNT_STR ")"));
+
 FlatPlus::FlatPlus() {
     // init random numeral generator
     rng = std::mt19937(std::random_device{}());
@@ -150,7 +161,7 @@ bool FlatPlus::doFlat(Function &F) {
     // give each exception block a pair of (x, y), x is unique
     for (BasicBlock *bb : excepts) {
         if (!isa<LandingPadInst>(bb->getFirstNonPHIOrDbgOrLifetime())) {
-        genBlockInfo(bb);
+            genBlockInfo(bb);
         }
     }
 
@@ -173,7 +184,7 @@ bool FlatPlus::doFlat(Function &F) {
     }
     for (BasicBlock *bb : excepts) {
         if (!isa<LandingPadInst>(bb->getFirstNonPHIOrDbgOrLifetime())) {
-        dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
+            dispatchSwitch->addCase(dispatcherBuilder.getInt32(blockInfos[bb].label), bb);
         }
     }
 
@@ -407,6 +418,35 @@ void FlatPlus::shuffleBlock(SmallVector<BasicBlock *, 0> &bb) {
         auto second = bb[rng() % cnt];
         first->moveBefore(second);
     }
+}
+
+bool FlatPlusPass::runOnFunction(Function &F) {
+    if (doObfuscation(F, "fla_plus", flag)) {
+        // -dont_fla_invoke
+        if (DontFlaInvoke) {
+            for (BasicBlock &bb : F) {
+                if (isa<InvokeInst>(bb.getTerminator())) {
+                    return false;
+                }
+            }
+        }
+        size_t flaCnt = FlaCnt;
+        if (flaCnt > MAX_FLA_CNT) {
+            errs() << "[!] max flat cnt == " MAX_FLA_CNT_STR "\n";
+            flaCnt = MAX_FLA_CNT;
+        }
+        if (flaCnt < 1) {
+            flaCnt = 1;
+        }
+        for (size_t i = 0; i < flaCnt; i++) {
+            if (!flatPlus->doFlat(F)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
 }
 
 char FlatPlusPass::ID = 0;

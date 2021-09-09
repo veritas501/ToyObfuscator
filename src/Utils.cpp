@@ -1,6 +1,76 @@
 #include "Utils.hpp"
 #include "llvm/Transforms/Utils/Local.h"
 
+std::string readAnnotate(Function &F) {
+    std::string annotation = "";
+
+    // Get annotation variable
+    GlobalVariable *glob =
+        F.getParent()->getGlobalVariable("llvm.global.annotations");
+
+    if (!glob) {
+        return "";
+    }
+    if (!isa<ConstantArray>(glob->getInitializer())) {
+        return "";
+    }
+    ConstantArray *ca = dyn_cast<ConstantArray>(glob->getInitializer());
+    for (unsigned i = 0; i < ca->getNumOperands(); ++i) {
+        if (isa<ConstantStruct>(ca->getOperand(i))) {
+            // Get the struct
+            ConstantStruct *structAn = dyn_cast<ConstantStruct>(ca->getOperand(i));
+            ConstantExpr *expr = dyn_cast<ConstantExpr>(structAn->getOperand(0));
+            if (expr && expr->getOpcode() == Instruction::BitCast &&
+                expr->getOperand(0) == &F) {
+                // If it's a bitcast we can check if the annotation is concerning
+                // the current function
+                ConstantExpr *note = cast<ConstantExpr>(structAn->getOperand(1));
+                // If it's a GetElementPtr, that means we found the variable
+                // containing the annotations
+                if (note->getOpcode() == Instruction::GetElementPtr) {
+                    GlobalVariable *annoteStr =
+                        dyn_cast<GlobalVariable>(note->getOperand(0));
+                    if (annoteStr) {
+                        ConstantDataSequential *data =
+                            dyn_cast<ConstantDataSequential>(annoteStr->getInitializer());
+                        if (data && data->isString()) {
+                            annotation += data->getAsString().lower() + " ";
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return annotation;
+}
+
+bool doObfuscation(Function &F, std::string attr, bool flag) {
+    // Check if declaration
+    if (F.isDeclaration()) {
+        return false;
+    }
+
+    // Check external linkage
+    if (F.hasAvailableExternallyLinkage() != 0) {
+        return false;
+    }
+
+    std::string attrYes = attr;
+    std::string attrNo = "no_" + attr;
+
+    std::string anno = readAnnotate(F);
+
+    if (anno.find(attrNo) != std::string::npos) {
+        return false;
+    }
+    if (flag || anno.find(attrYes) != std::string::npos) {
+        return true;
+    }
+
+    return false;
+}
+
 bool valueEscapes(Instruction *inst) {
     BasicBlock *bb = inst->getParent();
     for (auto &u : inst->uses()) {
