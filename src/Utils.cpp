@@ -10,8 +10,8 @@ bool valueEscapes(Instruction *inst) {
             if (xrefInst->getParent() != bb) {
                 if (isa<InvokeInst>(inst) && isa<StoreInst>(xrefInst)) {
                     auto storeInst = dyn_cast<StoreInst>(xrefInst);
-                    auto storeVarName = storeInst->getOperand(1)->getName();
-                    if (storeVarName.find(".reg2mem") != std::string::npos) {
+                    auto storeTarget = storeInst->getOperand(1);
+                    if (isa<AllocaInst>(storeTarget)) {
                         continue;
                     }
                 }
