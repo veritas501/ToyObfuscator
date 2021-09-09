@@ -1,10 +1,10 @@
 # ToyObfuscator
 
-Some simple obfuscator ;)
-
-- `-fla_plus`: control flow graph flatten plus version
+Some simple obfuscator ;) (base on llvm-10)
 
 ## Compile
+
+### Build out-tree pass
 
 ```bash
 git clone https://github.com/veritas501/ToyObfuscator.git
@@ -12,27 +12,29 @@ cd ToyObfuscator
 mkdir build && cd build
 cmake .. -DLLVM_DIR=/usr/lib/llvm-10/lib/cmake/llvm/
 make -j`nproc`
-
-# lib at "./src/libLLVMToyObfuscator.so"
 ```
 
-build custom clang with obfuscator:
+Compiled pass at "ToyObfuscator/build/src/libLLVMToyObfuscator.so"
+
+### Build in-tree pass
 
 ```bash
 # clone llvm-10.0.1
 git clone https://github.com/llvm/llvm-project.git --depth 1 -b llvmorg-10.0.1
 # apply custom patch
 ./build_clang.sh <DIR_TO_llvm-project>
-
-# normal build clang and llvm
+# build clang and llvm as normal
 cd <DIR_TO_llvm-project>
 mkdir build && cd build
 cmake -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles" ../llvm
 make -j`nproc` # or 'make clang -j`nproc`' for just compile clang
 ```
 
+## Pass flags
 
-## Usage
+- `-fla_plus`: control flow graph flatten plus version
+
+## Quickstart
 
 - demo.c
 
@@ -61,18 +63,18 @@ int main(int argc, char **argv) {
 }
 ```
 
-
+Use out-tree pass to do obfuscation.
 
 ```bash
-$ clang -emit-llvm -c demo.c -o demo.bc
-$ opt -load ./libLLVMToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
-$ clang demo_obf.bc -o demo_obf
+clang -emit-llvm -c demo.c -o demo.bc
+opt -load ./libLLVMToyObfuscator.so -fla_plus demo.bc -o demo_obf.bc
+clang demo_obf.bc -o demo_obf
 ```
 
 - demo_obf.ll
 
 ```bash
-$ llvm-dis demo_obf.bc
+llvm-dis demo_obf.bc
 ```
 
 function `foo2`:
@@ -229,3 +231,22 @@ Trans_2:                                          ; preds = %Dispatcher
   br label %Dispatcher
 }
 ```
+
+## Pass design
+
+### fla_plus
+
+先来说说传统ollvm中的flat吧。
+
+![](assets/normal_flat.jpg)
+
+在这种flat思路中，switch块中用来判断jump地址的信息为label，而每个块其实都对应一个label，而这个label值在其块结束时被设置。
+因此恢复者可以先通过switch块收集label和basic block间的对应关系，之后在每个basic block的结尾获取这个block设置的新label从而推出下一个block是谁（如果是条件跳转就获取后两个block以及对应的条件）。
+或者说，恢复者可以先通过特征找到所有的useful block，然后借助angr等符号执行工具，找到他的下一个或下两个block。
+换言之，在这种思路中，假设A->B，那么已知A，通过switch信息以及A末尾的label便可求出后继B。
+
+为了对抗这种恢复思路，我打算在A->B的过程中引入状态变量。即A跳转到B依赖于进入A的状态。
+
+![](assets/flat_plus.jpg)
+
+这里我引入了x, y, label三个变量（目前设计为三个`uint32_t`）。粗略一看可以发现，所有的useful block后面设置的label都为label1，而label1指向trans-1。在switch中不仅存在useful block，还存在translate block。translate block的作用是进行一个f的运算，因为label和x存在如下关系：`label=f(x)`。所以，在我的这个方案中，A->B并不是依靠写在block后面的label值，而是x值。那有人就要问了，那我拿到A中的x，不就能计算出对应的label，得到A->B的关系了吗？并没这么容易。我们发现，x的获取并不是简单的赋值，而是使用的xor，`x=y^imm32_const1; y=x^imm32_const2`。因此，想要得到A执行完x的值，还必须知道进入A时的y值，而y值并不存在于label的计算也不存在于switch的分发中。因此，想要知道A的后继，必须知道进入A时的y值，而这个y值单纯将A抽出来分析是无法得到的，因为它和程序的运行态相关，得到的方法只有将这个flat函数完整从prologue开始模拟到A块的开头，正如程序正常执行时那样。因此，这个方法也不是万能的，依然有破解的方法，只是不能像之前那样将一个个block拉出来逐个击破。
