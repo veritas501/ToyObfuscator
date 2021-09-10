@@ -8,6 +8,7 @@ add_library(LLVMToyObfuscator
   LegacyIndirectBrExpand.cpp
   LegacyLowerSwitch.cpp
   FlatPlus.cpp
+  BogusControlFlow.cpp
 )
 
 add_dependencies(LLVMToyObfuscator intrinsics_gen)
