@@ -205,11 +205,12 @@ void BogusControlFlow::buildBCF(
         p2Raw = primes[rng() % primeCnt];
     } while (p2Raw == p1Raw);
 
-    primeTy a1Raw = (rng() & OVERFLOW_MASK) + 1;
+    primeTy a1Raw;
     primeTy a2Raw;
     do {
-        a2Raw = (rng() & OVERFLOW_MASK) + 1;
-    } while (a2Raw == a1Raw);
+        a1Raw = (rng() & OVERFLOW_MASK);
+        a2Raw = (rng() & OVERFLOW_MASK);
+    } while ((a2Raw == a1Raw) || !a1Raw || !a2Raw);
 
     // if no enough variables, create them :)
     if (usableVars.size() < 2) {
