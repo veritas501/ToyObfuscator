@@ -12,6 +12,8 @@
 #include "LegacyIndirectBrExpand.hpp"
 #include "LegacyLowerSwitch.hpp"
 #include "Utils.hpp"
+#include "llvm/ADT/Triple.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/ToyObfuscator/BogusControlFlowPass.hpp"
 
@@ -136,6 +138,11 @@ bool BogusControlFlow::doBogusControlFlow(Function &F) {
         }
     }
 
+    // no block is obfuscatable
+    if (!useful.size()) {
+        return false;
+    }
+
     // collect all usable variables
     collectUsableVars(useful);
     if (!usableVars.size()) {
@@ -143,10 +150,15 @@ bool BogusControlFlow::doBogusControlFlow(Function &F) {
         return false;
     }
 
+    // ensure at least obf one block
+    firstObf = true;
+
     // do bcf for each useful block
     for (BasicBlock *bb : useful) {
-        if (rng() % 100 >= bcfRate) {
-            continue;
+        if (!firstObf) {
+            if (rng() % 100 >= bcfRate) {
+                continue;
+            }
         }
         Instruction *term = bb->getTerminator();
         if (isa<InvokeInst>(term)) {
@@ -170,6 +182,9 @@ bool BogusControlFlow::doBogusControlFlow(Function &F) {
             buildBCF(bcfTrampoline, succ, jumpTarget, F);
         } else {
             assert(0 && "WTF, how is this possible ???");
+        }
+        if (firstObf) {
+            firstObf = false;
         }
     }
 
@@ -226,10 +241,16 @@ void BogusControlFlow::buildBCF(
         usableIdx2 = rng() % usableVars.size();
     } while (usableIdx2 == usableIdx1);
 
-    BasicBlock *fakeDst;
+    BasicBlock *fakeDst = nullptr;
     do {
         fakeDst = jumpTarget[rng() % jumpTarget.size()];
     } while (fakeDst == dst && jumpTarget.size() == 1);
+    if (firstObf) {
+        BasicBlock *junk = buildJunk(F);
+        if (junk) {
+            fakeDst = junk;
+        }
+    }
 
     Value *usable1 = usableVars[usableIdx1];
     Value *usable2 = usableVars[usableIdx2];
@@ -271,6 +292,34 @@ void BogusControlFlow::buildBCF(
     usableVars.emplace_back(RhsOr);
     usableVars.emplace_back(RhsSquare);
     usableVars.emplace_back(RhsTot);
+}
+
+BasicBlock *BogusControlFlow::buildJunk(Function &F) {
+    BasicBlock *junk = BasicBlock::Create(
+        F.getContext(), "junk", &F);
+    bool is64 = Triple(F.getParent()->getTargetTriple()).getArch() == Triple::x86_64;
+    if (is64) {
+        auto funcTy = FunctionType::get(Type::getVoidTy(F.getContext()), false);
+        IRBuilder<> builder(junk);
+        uint8_t jump_op[] = {0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+                             0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f};
+        for (int i = 0; i < 5; i++) {
+            std::string junk_asm = "";
+            if (i != 4) {
+                junk_asm += ".byte " + std::to_string(jump_op[rng() % sizeof(jump_op)]) + "\n";
+                junk_asm += ".byte " + std::to_string(rng() % 0x100) + "\n";
+            } else {
+                junk_asm += ".byte 143\n.byte " + std::to_string(rng() % 0x100) + "\n";
+            }
+            InlineAsm *IA = InlineAsm::get(funcTy, junk_asm, "", true, false);
+            builder.CreateCall(IA);
+        }
+        builder.CreateUnreachable();
+        junk->moveAfter(&*F.begin());
+        return junk;
+    }
+
+    return nullptr;
 }
 
 bool BogusControlFlowPass::runOnFunction(Function &F) {

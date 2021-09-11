@@ -25,11 +25,13 @@ public:
 protected:
     std::mt19937 rng;
     std::vector<Value *> usableVars;
+    bool firstObf;
 
     void collectUsableVars(std::vector<BasicBlock *> &useful);
     void buildBCF(BasicBlock *src, BasicBlock *dst,
                   std::vector<BasicBlock *> &jumpTarget,
                   Function &F);
+    BasicBlock * buildJunk(Function &F);
 };
 
 class BogusControlFlowPass : public FunctionPass {
