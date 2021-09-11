@@ -59,7 +59,7 @@ bool BogusControlFlow::doBogusControlFlow(Function &F) {
         return false;
     }
 
-    uint32_t bcfRate = BCFRate % 100;
+    uint32_t bcfRate = BCFRate % 101; // [0,100]
 
     // expand IndirectBrInst to SwitchInst
     createLegacyIndirectBrExpandPass()->runOnFunction(F);
@@ -145,12 +145,11 @@ bool BogusControlFlow::doBogusControlFlow(Function &F) {
 
     // do bcf for each useful block
     for (BasicBlock *bb : useful) {
-        if (rng() % 100 > bcfRate) {
+        if (rng() % 100 >= bcfRate) {
             continue;
         }
         Instruction *term = bb->getTerminator();
         if (isa<InvokeInst>(term)) {
-
             BasicBlock *normalSuccessor = term->getSuccessor(0);
             BasicBlock *bcfTrampoline = BasicBlock::Create(
                 F.getContext(), "bcfTrampoline", &F);
