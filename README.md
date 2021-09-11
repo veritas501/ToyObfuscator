@@ -94,6 +94,12 @@ clang demo_obf.bc -o demo_obf
 
 这里我引入了x, y, label三个变量（目前设计为三个`uint32_t`）。粗略一看可以发现，所有的useful block后面设置的label都为label1，而label1指向trans-1。在switch中不仅存在useful block，还存在translate block。translate block的作用是进行一个f的运算，因为label和x存在如下关系：`label=f(x)`。所以，在我的这个方案中，A->B并不是依靠写在block后面的label值，而是x值。那有人就要问了，那我拿到A中的x，不就能计算出对应的label，得到A->B的关系了吗？并没这么容易。我们发现，x的获取并不是简单的赋值，而是使用的xor，`x=y^imm32_const1; y=x^imm32_const2`。因此，想要得到A执行完x的值，还必须知道进入A时的y值，而y值并不存在于label的计算也不存在于switch的分发中。因此，想要知道A的后继，必须知道进入A时的y值，而这个y值单纯将A抽出来分析是无法得到的，因为它和程序的运行态相关，得到的方法只有将这个flat函数完整从prologue开始模拟到A块的开头，正如程序正常执行时那样。因此，这个方法也不是万能的，依然有破解的方法，只是不能像之前那样将一个个block拉出来逐个击破。
 
+此外flat_plus还支持了`InvokeInst`，在使用try...catch的c++函数中出现（貌似还有其他情况也会使用InvokeInst），ollvm是直接将invoke屏蔽了，只要这个函数中存在就不对这个函数做flat。
+
+思路如下。invoke的unwind分支的开头为`LandingPadInst`，我们找到所有包含landingpad的block以及这些block的后继，将其在后续flat过程中排除，其余的block继续做flatten。其中，invoke类似branch，作为terminator，其后面不能再添加指令，因此只能修改默认的跳转分支并创建trampoline，将flat的逻辑写在trampoline中。此外，fixStack的逻辑需要一些改动，这里不再赘述。
+
+![](assets/invoke_flat_plus.jpg)
+
 ### bcf
 
 虚假控制流一般就是通过不透明谓词（opaque predicates）来实现。
