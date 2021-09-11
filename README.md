@@ -113,7 +113,7 @@ clang demo_obf.bc -o demo_obf
 ![](assets/normal_bcf.jpg)
 
 分析这种bcf有几种方案：
-1. 由于x, y为全局变量很容易识别，只要在IDA中通过修改段属性为ro基本让IDA自动分析这个不透明谓词。例如[这篇文章](https://zhuanlan.zhihu.com/p/151853593)。
+1. 由于x, y为全局变量很容易识别，只要在IDA中通过修改段属性为ro即可让IDA自动分析这个不透明谓词。例如[这篇文章](https://zhuanlan.zhihu.com/p/151853593)。
 2. 此外我们也可以注意到，这个方案中Junk块在运行过程中永远不会被执行到，因此还有一种思路就是将永远不被执行到的块去除。例如[这篇文章](https://bbs.pediy.com/thread-266005.htm)。
 3. 通过查找这种固定的pattern来直接去除不透明谓词。例如[这篇文章](https://www.52pojie.cn/thread-995577-1-1.html)。
 
